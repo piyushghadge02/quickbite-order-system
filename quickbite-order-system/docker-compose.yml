@@ -1,0 +1,90 @@
+# QuickBite: RabbitMQ + FastAPI + 4 workers.
+#
+# Start everything:   docker compose up -d --build
+# Scale a worker:     docker compose up -d --scale payment-worker=2
+# Follow logs:        docker compose logs -f
+# Stop everything:    docker compose down
+
+x-app-env: &app-env
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  DATABASE_URL: sqlite:////data/quickbite.db
+  EXCHANGE_NAME: quickbite.orders
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management dashboard: http://localhost:15672 (guest/guest)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *app-env
+    volumes:
+      - sqlite_data:/data   # shared SQLite file for API + workers
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  payment-worker:
+    build: .
+    command: ["python", "-m", "workers.payment_worker"]
+    environment:
+      <<: *app-env
+      PAYMENT_FAIL_MODE: "off"   # "random" | "transient" | "permanent" for failure demos
+    volumes:
+      - sqlite_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  restaurant-worker:
+    build: .
+    command: ["python", "-m", "workers.restaurant_worker"]
+    environment:
+      <<: *app-env
+    volumes:
+      - sqlite_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  delivery-worker:
+    build: .
+    command: ["python", "-m", "workers.delivery_worker"]
+    environment:
+      <<: *app-env
+    volumes:
+      - sqlite_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-worker:
+    build: .
+    command: ["python", "-m", "workers.notification_worker"]
+    environment:
+      <<: *app-env
+    volumes:
+      - sqlite_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:   # RabbitMQ keeps queues/messages here across restarts
+  sqlite_data:     # the shared quickbite.db lives here

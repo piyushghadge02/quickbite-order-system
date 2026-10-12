@@ -1,0 +1,7 @@
+# QuickBite dependencies (API + workers + tests).
+fastapi
+uvicorn
+aio-pika
+sqlalchemy
+httpx
+pytest
